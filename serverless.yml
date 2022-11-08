@@ -1,0 +1,38 @@
+service: svrless-poc-py
+
+# You can pin your service to only deploy with a specific Serverless version
+# Check out our docs for more details
+# frameworkVersion: "=X.X.X"
+
+plugins:
+  - serverless-iam-roles-per-function
+
+provider:
+  name: aws
+  runtime: python3.8
+  stackTags:
+    project_name: pap
+    product_name: transferencias_masivas
+  stage: ${opt:stage,'dev'}
+  region: ${opt:region, 'us-east-1'}
+
+custom:
+  stackPrefix: app-aws-${opt:stage, 'dev'}-pap
+  #tableName
+  tableName: ${self:custom.stackPrefix}-transfers
+
+package:
+  exclude:
+    - 'node_modules/**'
+    - 'resources/**'
+    - 'package.json'
+    - 'package-lock.json'
+    - 'target/**'
+
+functions:
+  - ${file(src/helloWorld/helloWorld.yml)}
+  - ${file(src/getItem/getItem.yml)}
+
+resources:
+  - ${file(resources/dynamodb/dynamodb.yml)}
+  - ${file(resources/sqs/sqs.yml)}

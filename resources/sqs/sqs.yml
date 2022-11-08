@@ -1,0 +1,5 @@
+Resources:
+  TranfersQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:custom.stackPrefix}-transfer-queue

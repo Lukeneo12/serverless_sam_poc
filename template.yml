@@ -1,0 +1,251 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: The AWS CloudFormation template for this Serverless application
+Resources:
+  ServerlessDeploymentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+  ServerlessDeploymentBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref 'ServerlessDeploymentBucket'
+      PolicyDocument:
+        Statement:
+          - Action: s3:*
+            Effect: Deny
+            Principal: '*'
+            Resource:
+              - !Join
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':s3:::'
+                  - !Ref 'ServerlessDeploymentBucket'
+                  - /*
+              - !Join
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':s3:::'
+                  - !Ref 'ServerlessDeploymentBucket'
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+  HelloWorldLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/svrless-poc-py-dev-HelloWorld
+  GetItemLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/svrless-poc-py-dev-GetItem
+  IamRoleLambdaExecution:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: !Join
+            - '-'
+            - - svrless-poc-py
+              - dev
+              - lambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:CreateLogGroup
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/svrless-poc-py-dev*:*'
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/svrless-poc-py-dev*:*:*'
+      Path: /
+      RoleName: !Join
+        - '-'
+        - - svrless-poc-py
+          - dev
+          - !Ref 'AWS::Region'
+          - lambdaRole
+  HelloWorldLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/helloWorld
+      Handler: src/helloWorld/handler.hello
+      Runtime: python3.8
+      FunctionName: svrless-poc-py-dev-HelloWorld
+      MemorySize: 1024
+      Timeout: 6
+      Role: !GetAtt 'IamRoleLambdaExecution.Arn'
+    DependsOn:
+      - HelloWorldLogGroup
+  GetItemLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/getItem
+      Handler: src/getItem/handler.getItem
+      Runtime: python3.8
+      FunctionName: svrless-poc-py-dev-GetItem
+      MemorySize: 1024
+      Timeout: 6
+      Environment:
+        Variables:
+          TABLE_NAME: app-aws-dev-pap-transfers
+      Role: !GetAtt 'GetItemIamRoleLambdaExecution.Arn'
+    DependsOn:
+      - GetItemIamRoleLambdaExecution
+      - GetItemLogGroup
+  ApiGatewayRestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: dev-svrless-poc-py
+      EndpointConfiguration:
+        Types:
+          - EDGE
+      Policy: ''
+  ApiGatewayResourceTransfers:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt 'ApiGatewayRestApi.RootResourceId'
+      PathPart: transfers
+      RestApiId: !Ref 'ApiGatewayRestApi'
+  ApiGatewayResourceTransfersId:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref 'ApiGatewayResourceTransfers'
+      PathPart: :id
+      RestApiId: !Ref 'ApiGatewayRestApi'
+  ApiGatewayMethodTransfersIdGet:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: GET
+      RequestParameters: {}
+      ResourceId: !Ref 'ApiGatewayResourceTransfersId'
+      RestApiId: !Ref 'ApiGatewayRestApi'
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Join
+          - ''
+          - - 'arn:'
+            - !Ref 'AWS::Partition'
+            - ':apigateway:'
+            - !Ref 'AWS::Region'
+            - :lambda:path/2015-03-31/functions/
+            - !GetAtt 'GetItemLambdaFunction.Arn'
+            - /invocations
+      MethodResponses: []
+    DependsOn:
+      - GetItemLambdaPermissionApiGateway
+  ApiGatewayDeployment1667930921252:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref 'ApiGatewayRestApi'
+      StageName: dev
+    DependsOn:
+      - ApiGatewayMethodTransfersIdGet
+  GetItemLambdaPermissionApiGateway:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt 'GetItemLambdaFunction.Arn'
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Join
+        - ''
+        - - 'arn:'
+          - !Ref 'AWS::Partition'
+          - ':execute-api:'
+          - !Ref 'AWS::Region'
+          - ':'
+          - !Ref 'AWS::AccountId'
+          - ':'
+          - !Ref 'ApiGatewayRestApi'
+          - /*/*
+  GetItemIamRoleLambdaExecution:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: !Join
+            - '-'
+            - - svrless-poc-py
+              - dev
+              - lambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:CreateLogGroup
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/svrless-poc-py-dev-GetItem:*:*'
+              - Effect: Allow
+                Action:
+                  - dynamoDB:GetItem
+                Resource:
+                  - !GetAtt 'Transfers.Arn'
+      Path: /
+      RoleName: app-aws-dev-pap-gi-role
+      ManagedPolicyArns: []
+  Transfers:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: app-aws-dev-pap-transfers
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - AttributeName: transfer_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: transfer_id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+  TranfersQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: app-aws-dev-pap-transfer-queue
+Outputs:
+  ServerlessDeploymentBucketName:
+    Value: !Ref 'ServerlessDeploymentBucket'
+    Export:
+      Name: sls-svrless-poc-py-dev-ServerlessDeploymentBucketName
+  ServiceEndpoint:
+    Description: URL of the service endpoint
+    Value: !Join
+      - ''
+      - - https://
+        - !Ref 'ApiGatewayRestApi'
+        - .execute-api.
+        - !Ref 'AWS::Region'
+        - .
+        - !Ref 'AWS::URLSuffix'
+        - /dev
+    Export:
+      Name: sls-svrless-poc-py-dev-ServiceEndpoint

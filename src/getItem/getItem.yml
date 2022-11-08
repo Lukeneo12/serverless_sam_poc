@@ -1,0 +1,15 @@
+GetItem:
+    handler: src/getItem/handler.getItem
+    iamRoleStatementsName: ${self:custom.stackPrefix}-gi-role
+    iamRoleStatements:
+          - Effect: Allow
+            Action:
+              - dynamoDB:GetItem
+            Resource:
+              - Fn::GetAtt: [ Transfers, Arn ]
+    environment:
+      TABLE_NAME: ${self:custom.tableName}
+    events:
+     - http:
+         path: transfers/:id
+         method: get
